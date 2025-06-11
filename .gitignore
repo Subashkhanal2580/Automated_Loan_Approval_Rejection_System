@@ -1,0 +1,15 @@
+# Ignore environment files
+.env
+
+# Ignore dataset folder
+dataset/
+
+# Ignore global cache folder
+.cache/
+
+# Ignore global JSON config folder
+json_configs/
+
+# Ignore context_extractor subdirectories
+context_extractor/.cache/
+context_extractor/json_configs/

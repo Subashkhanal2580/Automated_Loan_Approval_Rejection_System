@@ -1,0 +1,14 @@
+pyautogen
+google-genai
+vertexai
+ap2[gemini]
+ollama
+langchain
+pandas
+langchain-openai
+langchain-google
+langchain-ollama
+langchain_experimental
+matplotlib
+seaborn
+langchain_google_genai
