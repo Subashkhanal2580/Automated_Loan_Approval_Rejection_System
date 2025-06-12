@@ -12,3 +12,4 @@ langchain_experimental
 matplotlib
 seaborn
 langchain_google_genai
+scikit-learn
