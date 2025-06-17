@@ -12,27 +12,16 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME")
 
-# --- Configuration for application_train.csv centric processing ---
-TARGET_FINTECH_FILE = "application_train.csv"
-INDEX_NAME = "fintech-app-train-metadata-index" # index name
+# Pinecone Index details - using a general name for multiple files
+INDEX_NAME = "fintech-app-traintest-metadata-index" 
 EMBEDDING_DIMENSION = 768
 
 # Define the path to your fintech data directory
 FINTECH_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "fintech_data")
 
-# This DataFrame will be used for datatype inference
-target_df = None
-target_file_path = os.path.join(FINTECH_DATA_DIR, TARGET_FINTECH_FILE)
-if os.path.exists(target_file_path):
-    try:
-        target_df = pd.read_csv(target_file_path)
-        print(f"Successfully loaded '{TARGET_FINTECH_FILE}' for datatype inference.")
-    except Exception as e:
-        print(f"Error loading '{TARGET_FINTECH_FILE}': {e}")
-        target_df = None
-else:
-    print(f"Error: Target fintech file '{TARGET_FINTECH_FILE}' not found at '{target_file_path}'. Please ensure it exists.")
-
+# Global dictionary to store loaded dataframes for efficiency
+# This avoids reloading the same large CSV multiple times for different columns
+loaded_fintech_dfs = {}
 
 def get_embedding(text):
     """Generates an embedding for a given text using the local Ollama model."""
@@ -42,6 +31,27 @@ def get_embedding(text):
     except Exception as e:
         print(f"Error generating embedding with Ollama for text: '{text[:50]}...': {e}")
         return None
+
+def load_fintech_df(table_name):
+    """
+    Loads a fintech DataFrame into the global cache if not already loaded.
+    """
+    if table_name not in loaded_fintech_dfs:
+        file_path = os.path.join(FINTECH_DATA_DIR, table_name)
+        if not os.path.exists(file_path):
+            print(f"Warning: Fintech data file '{table_name}' not found at '{file_path}'")
+            loaded_fintech_dfs[table_name] = None # Mark as not found to avoid repeated attempts
+            return None
+        try:
+            df = pd.read_csv(file_path)
+            loaded_fintech_dfs[table_name] = df
+            print(f"Loaded '{table_name}' for datatype inference.")
+            return df
+        except Exception as e:
+            print(f"Error loading '{table_name}' for datatype inference: {e}")
+            loaded_fintech_dfs[table_name] = None # Mark as error
+            return None
+    return loaded_fintech_dfs[table_name] # Return from cache
 
 def get_column_datatype_pandas_dtype(df, column_name):
     """
@@ -67,21 +77,15 @@ def get_column_datatype_pandas_dtype(df, column_name):
             return 'datetime'
         return dtype_name # Return exact pandas dtype name if not simplified
     else:
+        # print(f"Warning: Column '{column_name}' not found in the DataFrame for '{df.name}'.") # df.name might not be set
         return "column_not_found_in_df"
 
 def upload_metadata_to_pinecone(csv_file_path):
     """
-    Reads metadata from a CSV, filters for target file, generates embeddings, and uploads to Pinecone.
+    Reads metadata from a CSV, processes all relevant files, generates embeddings,
+    and uploads to a single Pinecone index.
     """
     df_metadata = pd.read_csv(csv_file_path)
-
-    # --- Filter metadata to be centric to application_train.csv ---
-    df_filtered_metadata = df_metadata[df_metadata['Table'] == TARGET_FINTECH_FILE].copy()
-    print(f"Processing metadata for '{TARGET_FINTECH_FILE}' only. Found {len(df_filtered_metadata)} relevant rows.")
-
-    if target_df is None:
-        print("Cannot proceed with datatype inference as the target DataFrame was not loaded. Exiting.")
-        return # Exit if target DataFrame is not available
 
     pc = Pinecone(api_key=PINECONE_API_KEY)
 
@@ -102,13 +106,20 @@ def upload_metadata_to_pinecone(csv_file_path):
     vectors_to_upsert = []
     BATCH_SIZE = 100
 
-    print("Processing filtered metadata and inferring datatypes...")
-    for i, row in df_filtered_metadata.iterrows(): # Iterate over filtered DataFrame
-        table_name = row['Table']       # Will always be TARGET_FINTECH_FILE
+    print("Processing metadata for all listed fintech CSVs...")
+    for i, row in df_metadata.iterrows(): # Iterate over ALL rows in metadata DataFrame
+        table_name = row['Table']
         column_name = row['Row']
 
-        # Get the datatype using the target_df
-        datatype = get_column_datatype_pandas_dtype(target_df, column_name)
+        # Load the relevant fintech DataFrame (or get from cache)
+        current_fintech_df = load_fintech_df(table_name)
+        
+        if current_fintech_df is None:
+            print(f"Skipping row {i} for '{table_name}.{column_name}' due to DataFrame loading error.")
+            continue # Skip to the next row if the file couldn't be loaded
+
+        # Get the datatype using the current_fintech_df
+        datatype = get_column_datatype_pandas_dtype(current_fintech_df, column_name)
 
         # --- Determine 'isTarget' metadata ---
         is_target_column = (column_name.upper() == 'TARGET') # Case-insensitive check
@@ -119,16 +130,19 @@ def upload_metadata_to_pinecone(csv_file_path):
             f"Description: {row['Description']}. "
             f"Special Notes: {row['Special'] if pd.notna(row['Special']) else ''}. "
             f"Datatype: {datatype}. "
-            f"Is Target Column: {is_target_column}" # <--- Include isTarget in text for embedding
+            f"Is Target Column: {is_target_column}"
         )
 
         embedding = get_embedding(text_to_embed)
 
         if embedding:
-            vector_id = f"metadata-{i}"
+            vector_id = f"{table_name}-{column_name}" # Make ID unique across files
+            # Ensure vector_id is valid for Pinecone (no slashes, etc.)
+            vector_id = vector_id.replace('.csv', '').replace('.', '_').replace('/', '_')
+
             metadata = {k: str(v) if pd.isna(v) else v for k, v in row.to_dict().items()}
-            metadata['datatype'] = datatype         # <--- Add datatype to metadata dict
-            metadata['isTarget'] = is_target_column # <--- Add isTarget to metadata dict
+            metadata['datatype'] = datatype
+            metadata['isTarget'] = is_target_column
 
             vectors_to_upsert.append({
                 "id": vector_id,
@@ -145,7 +159,7 @@ def upload_metadata_to_pinecone(csv_file_path):
                 finally:
                     vectors_to_upsert = []
         else:
-            print(f"Skipping row {i} due to embedding error.")
+            print(f"Skipping row {i} for '{table_name}.{column_name}' due to embedding error.")
 
     if vectors_to_upsert:
         print(f"Upserting final batch of {len(vectors_to_upsert)} vectors...")
