@@ -4,7 +4,6 @@ from pinecone import Pinecone, ServerlessSpec
 import os
 from dotenv import load_dotenv
 import time
-import numpy as np # For checking pd.isna
 
 # Load environment variables
 load_dotenv()
@@ -13,7 +12,7 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME")
 
 # Pinecone Index details - using a general name for multiple files
-INDEX_NAME = "fintech-app-traintest-metadata-index" 
+INDEX_NAME = "fintech-app-traintestfinal-metadata-index" 
 EMBEDDING_DIMENSION = 768
 
 # Define the path to your fintech data directory

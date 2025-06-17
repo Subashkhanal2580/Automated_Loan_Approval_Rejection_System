@@ -13,7 +13,7 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME")
 
 # Pinecone Index details for STATISTICAL metadata
-STAT_INDEX_NAME = "fintech-statistical-metadata-index" # Using the same name
+STAT_INDEX_NAME = "fintech-statisticalfinal-metadata-index" # Using the same name
 EMBEDDING_DIMENSION = 768 # Still using nomic-embed-text for embedding text description of stats
 
 # Define the path to your fintech data directory
