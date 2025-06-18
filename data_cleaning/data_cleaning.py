@@ -116,6 +116,8 @@ def _get_comprehensive_metadata(all_results):
                 # Prioritize specific statistical keys or add new keys if not present
                 if key not in base_metadata or key in ["is_null", "null_count", "is_duplicate", "duplicate_count", "is_outlier", "outlier_count", "typeofdata"]:
                     base_metadata[key] = value
+
+        
     
     # Normalize 'datatype' key: use 'typeofdata' if available, otherwise 'datatype'
     # This ensures consistency for downstream checks (e.g., "identifier", "numerical")
@@ -245,223 +247,230 @@ def _determine_cleaning_plan(df: pd.DataFrame, column_name: str, column_metadata
         else:
             reasons_for_no_action.append("One-Hot Encoding skipped: column is not categorical.")
 
-
-    # print(f"Final cleaning_actions proposed: {cleaning_actions}")
-    # print(f"--- End Debug: _determine_cleaning_plan ---\n")
-
-    # If no cleaning actions are proposed, provide a general message based on reasons
     if not cleaning_actions:
         action_descriptions.append("No specific cleaning actions required for this column based on analysis:")
         for reason in set(reasons_for_no_action): # Use set to avoid duplicate reasons
-            action_descriptions.append(f"  - {reason}")
+            action_descriptions.append(f"  - {reason}")
 
     return cleaning_actions, action_descriptions, original_nulls_for_report, source_of_null_count
 
 
 # --- Main interactive cleaning loop ---
 print("\n--- Data Cleaning Agent Started ---")
-print("Type your query to clean a column, or type 'exit' to finish and save.")
 
-while True:
-    user_query = input("\nWhich column do you want to clean? (e.g., 'Clean total income' or 'exit'): ").strip()
+FINTECH_DATA_DIR = "fintech_data"  # directory path
 
-    if user_query.lower() == 'exit':
-        break
+# List all CSV files
+csv_files = [f for f in os.listdir(FINTECH_DATA_DIR) if f.endswith(".csv")]
 
-    if not user_query:
-        print("Please enter a valid query.")
+# Loop through each CSV file
+for csv_file in csv_files:
+    file_path = os.path.join(FINTECH_DATA_DIR, csv_file)
+    
+    print(f"\n📥 Loading file: {csv_file}")
+    
+    try:
+        # Use na_values to handle common missing value representations
+        missing_value_indicators = ['NA', 'N/A', 'NaN', 'nan', 'NULL', 'null', '', ' ']
+        df = pd.read_csv(file_path, na_values=missing_value_indicators)
+        loaded_dfs[csv_file] = df # Store the initial loaded DataFrame
+    except Exception as e:
+        print(f"Error loading '{csv_file}': {e}. Skipping this file.")
+        cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Failed to load '{csv_file}': {e}")
         continue
 
-    # --- Step 2: Embed User Input ---
-    query_embedding = ollama_embeddings.embed_query(user_query)
+    # Use the filename as the identifier
+    table_name = csv_file
 
-    # --- Step 3: Pinecone Search ---
-    print("Searching Pinecone for relevant columns...")
-    # Increased top_k to gather more metadata if spread across results
-    results_1 = index_1.query(
-        vector=query_embedding,
-        top_k=5, 
-        include_metadata=True
-    )
-    results_2 = index_2.query(
-        vector=query_embedding,
-        top_k=5, 
-        include_metadata=True
-    )
+    print(f"Loaded {len(df)} rows and {len(df.columns)} columns from {csv_file}")
+    current_df_in_memory = loaded_dfs[table_name]
+    # Iterate through each column in the currently loaded DataFrame
+    for column in loaded_dfs[table_name].columns: # Iterate over columns of the *current* DataFrame
+        user_query = column.strip() # user_query is now the column name automatically
+        print(f"\n--- Processing column: '{user_query}' in file: '{table_name}' ---")
 
-    all_results = sorted(results_1.matches + results_2.matches, key=lambda x: x.score, reverse=True)
-
-    if not all_results:
-        print("No relevant columns found in Pinecone for your query. Please try another query.")
-        continue
-
-    # --- Step 4: Identify Column & Retrieve Comprehensive Metadata ---
-    column_id, column_name, table_name, column_metadata = _get_comprehensive_metadata(all_results)
-
-    if not column_name or not table_name:
-        print("Error: Could not determine a valid column name or table name from search results. Skipping this column.")
-        continue
-
-    print(f"\n--- Most Relevant Column Found: '{column_name}' from '{table_name}' ---")
-    print("\nFull Merged Metadata for this column:")
-    for key, value in column_metadata.items():
-        print(f"  {key}: {value}")
-
-    file_path = os.path.join(FINTECH_DATA_DIR, table_name)
-
-    if not os.path.exists(file_path):
-        print(f"Error: File not found at {file_path}. Please ensure it exists in the '{FINTECH_DATA_DIR}' directory. Skipping this column.")
-        continue
-
-    # Load DataFrame if not already loaded
-    if table_name not in loaded_dfs:
-        print(f"Loading '{table_name}' into memory...")
-        try:
-            # Use na_values to handle common missing value representations
-            missing_value_indicators = ['NA', 'N/A', 'NaN', 'nan', 'NULL', 'null', '', ' ']
-            loaded_dfs[table_name] = pd.read_csv(file_path, na_values=missing_value_indicators)
-            print(f"Successfully loaded '{table_name}'. Initial rows: {len(loaded_dfs[table_name])}")
-        except Exception as e:
-            print(f"Error loading '{table_name}': {e}. Skipping cleaning for this column.")
+        # No 'exit' check here as it's fully automated now
+        if not user_query: # Should not happen if iterating through actual columns
+            print("Warning: Empty column name encountered. Skipping.")
+            cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] WARNING: Empty column name encountered in '{table_name}'. Skipping.")
             continue
 
-    df = loaded_dfs[table_name] # Get the current DataFrame for the file
+        # --- Step 2: Embed User Input (which is now the column name) ---
+        query_embedding = ollama_embeddings.embed_query(user_query)
 
-    if column_name not in df.columns:
-        print(f"Error: Column '{column_name}' not found in {table_name} after loading. Skipping.")
-        continue
-    
-    # --- Step 5 & 6: Determine Cleaning Strategy based on Comprehensive Metadata & DataFrame Analysis ---
-    cleaning_actions, action_descriptions, original_nulls_report, source_of_null_count = \
-        _determine_cleaning_plan(df, column_name, column_metadata)
+        # --- Step 3: Pinecone Search ---
+        print("Searching Pinecone for relevant columns...")
+        # Increased top_k to gather more metadata if spread across results
+        pinecone_filter = {"Table": {"$eq": table_name}}
+        results_1 = index_1.query(
+            vector=query_embedding,
+            top_k=5, 
+            include_metadata=True,
+            filter=pinecone_filter
+        )
+        results_2 = index_2.query(
+            vector=query_embedding,
+            top_k=5, 
+            include_metadata=True,
+            filter=pinecone_filter
+        )
+
+        all_results = sorted(results_1.matches + results_2.matches, key=lambda x: x.score, reverse=True)
+
+        if not all_results:
+            print(f"No relevant columns found in Pinecone for '{user_query}'. Skipping this column.")
+            cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {table_name} - {user_query}: No relevant columns found in Pinecone. Skipping.")
+            continue
+
+        # --- Step 4: Identify Column & Retrieve Comprehensive Metadata ---
+        column_id, column_name, table_name_from_pinecone, column_metadata = _get_comprehensive_metadata(all_results)
+
+        # Ensure the column found in Pinecone actually matches the current column being processed
+        if not column_name or not table_name_from_pinecone or column_name != user_query: # <--- MODIFIED CONDITION
+            print(f"Error: Pinecone did not return expected metadata for column '{user_query}' in '{table_name}'. Skipping.")
+            cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {table_name} - {user_query}: Pinecone returned unexpected metadata or none. Skipping.")
+            continue
+        
+        if column_name not in current_df_in_memory.columns: # <--- ADDED CHECK
+            print(f"Error: Column '{column_name}' not found in {table_name} after loading/previous modifications. Skipping.")
+            cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {table_name} - {column_name}: Column not found in DataFrame after modifications. Skipping.")
+            continue
+
+        print(f"\n--- Most Relevant Column Found: '{column_name}' from '{table_name}' ---")
+        print("\nFull Merged Metadata for this column:")
+        for key, value in column_metadata.items():
+            print(f"  {key}: {value}")
+
+        # The DataFrame for the current table should already be in `loaded_dfs`
+        # and its path checked at the file loading stage.
+        df_current = loaded_dfs[table_name] 
+
+        if column_name not in df_current.columns:
+            print(f"Error: Column '{column_name}' not found in {table_name} after loading. Skipping.")
+            cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {table_name} - {column_name}: Column not found in DataFrame. Skipping.")
+            continue
+        
+        # --- Step 5 & 6: Determine Cleaning Strategy based on Comprehensive Metadata & DataFrame Analysis ---
+        cleaning_actions, action_descriptions, original_nulls_report, source_of_null_count = \
+            _determine_cleaning_plan(df_current, column_name, column_metadata)
 
 
-    print(f"\nProposed Cleaning Plan for '{column_name}':")
-    print(f"- Data type (Pandas inferred): {df[column_name].dtype}")
-    print(f"- Data type (from metadata): {column_metadata.get('datatype', 'N/A')}")
-    print(f"- Original missing values ({source_of_null_count}): {original_nulls_report}")
-    
-    for desc in action_descriptions:
-        print(f"- {desc}")
+        print(f"\nProposed Cleaning Plan for '{column_name}':")
+        print(f"- Data type (Pandas inferred): {df_current[column_name].dtype}")
+        print(f"- Data type (from metadata): {column_metadata.get('datatype', 'N/A')}")
+        print(f"- Original missing values ({source_of_null_count}): {original_nulls_report}")
+        
+        for desc in action_descriptions:
+            print(f"- {desc}")
 
-    # --- User Approval ---
-    approval_input = input("Type 'approve' to proceed with this cleaning, 'skip' to skip this column, or 'exit' to quit: ").strip().lower()
-
-    if approval_input == 'exit':
-        break
-    elif approval_input == 'skip':
-        print(f"Skipping cleaning for column '{column_name}'.")
-        cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Skipped cleaning for column '{column_name}' in '{table_name}'.")
-        continue
-    elif approval_input != 'approve':
-        print("Invalid input. Please type 'approve', 'skip', or 'exit'. Skipping this column for now.")
-        cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] User did not approve/invalid input for column '{column_name}' in '{table_name}'. Skipping.")
-        continue
-
-    # --- Step 7: Execute Cleaning ---
-    if cleaning_actions:
-        print(f"\nExecuting cleaning actions for '{column_name}'...")
+        # --- Automated Approval (User Approval removed) ---
+        print(f"\nAutomatically proceeding with cleaning for column '{column_name}'...")
         log_prefix = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {table_name} - {column_name}: "
-        try:
-            # Note: df is updated directly or reassigned in loaded_dfs for OHE
-            # So, subsequent actions on the same column in the same session will use the updated df
-            
-            for action in cleaning_actions:
-                if action == "impute_mean":
-                    if pd.api.types.is_numeric_dtype(df[column_name]):
-                        num_nulls_before = df[column_name].isnull().sum()
-                        mean_value = df[column_name].mean()
-                        df[column_name].fillna(mean_value, inplace=True)
-                        print(f"  - Action: Imputed missing values with mean ({mean_value:.2f}).")
-                        cleaning_log.append(f"{log_prefix}Imputed {num_nulls_before} missing values with mean ({mean_value:.2f}).")
-                    else:
-                        print(f"  - Action: Cannot impute mean; '{column_name}' is not a numeric column. Skipping imputation.")
-                        cleaning_log.append(f"{log_prefix}Skipped mean imputation as '{column_name}' is not numeric.")
-                
-                elif action == "drop_nulls":
-                    initial_rows = len(df)
-                    num_nulls_before = df[column_name].isnull().sum()
-                    df.dropna(subset=[column_name], inplace=True)
-                    rows_dropped = initial_rows - len(df)
-                    print(f"  - Action: Dropped rows with null values ({rows_dropped} rows).")
-                    cleaning_log.append(f"{log_prefix}Dropped {rows_dropped} rows due to {num_nulls_before} missing values.")
-                    loaded_dfs[table_name] = df # Update df in loaded_dfs if rows were dropped (changes DF shape)
 
-                elif action == "impute_mode_or_category":
-                    if pd.api.types.is_categorical_dtype(df[column_name]) or pd.api.types.is_object_dtype(df[column_name]):
-                        num_nulls_before = df[column_name].isnull().sum()
-                        mode_value = df[column_name].mode()[0]
-                        df[column_name].fillna(mode_value, inplace=True)
-                        print(f"  - Action: Imputed missing categorical values with mode ('{mode_value}').")
-                        cleaning_log.append(f"{log_prefix}Imputed {num_nulls_before} missing categorical values with mode ('{mode_value}').")
-                    else:
-                        print(f"  - Action: Skipping mode imputation for non-categorical column '{column_name}'.")
-                        cleaning_log.append(f"{log_prefix}Skipped mode imputation as '{column_name}' is not categorical.")
-
-                elif action == "handle_outliers_iqr_capping":
-                    if pd.api.types.is_numeric_dtype(df[column_name]):
-                        Q1 = df[column_name].quantile(0.25)
-                        Q3 = df[column_name].quantile(0.75)
-                        IQR = Q3 - Q1
-                        
-                        if IQR == 0:
-                            print(f"  - Action: IQR is zero for '{column_name}'. Skipping outlier capping as all values are identical.")
-                            cleaning_log.append(f"{log_prefix}Skipped outlier capping: IQR is zero for '{column_name}'.")
-                            continue
-
-                        lower_bound = Q1 - 1.5 * IQR
-                        upper_bound = Q3 + 1.5 * IQR
-
-                        outliers_before = df[(df[column_name] < lower_bound) | (df[column_name] > upper_bound)].shape[0]
-                        if outliers_before > 0:
-                            df[column_name] = np.where(df[column_name] < lower_bound, lower_bound, df[column_name])
-                            df[column_name] = np.where(df[column_name] > upper_bound, upper_bound, df[column_name])
-                            print(f"  - Action: Capped {outliers_before} outliers in '{column_name}' using IQR method (values capped between {lower_bound:.2f} and {upper_bound:.2f}).")
-                            cleaning_log.append(f"{log_prefix}Capped {outliers_before} outliers using IQR method (values capped between {lower_bound:.2f} and {upper_bound:.2f}).")
+        # --- Step 7: Execute Cleaning ---
+        if cleaning_actions:
+            print(f"\nExecuting cleaning actions for '{column_name}'...")
+            try:
+                for action in cleaning_actions:
+                    if action == "impute_mean":
+                        if pd.api.types.is_numeric_dtype(df_current[column_name]):
+                            num_nulls_before = df_current[column_name].isnull().sum()
+                            mean_value = df_current[column_name].mean()
+                            df_current[column_name].fillna(mean_value, inplace=True)
+                            print(f"  - Action: Imputed missing values with mean ({mean_value:.2f}).")
+                            cleaning_log.append(f"{log_prefix}Imputed {num_nulls_before} missing values with mean ({mean_value:.2f}).")
                         else:
-                            print(f"  - Action: No outliers detected by IQR method for '{column_name}'.")
-                            cleaning_log.append(f"{log_prefix}No outliers detected by IQR method.")
-                    else:
-                        print(f"  - Action: Outlier handling skipped for '{column_name}' as it is not a numeric column.")
-                        cleaning_log.append(f"{log_prefix}Skipped outlier handling as '{column_name}' is not numeric.")
-
-                elif action == "remove_duplicates_identifier":
-                    num_duplicates_before = df[column_name].duplicated().sum()
-                    if num_duplicates_before > 0:
-                        initial_rows = len(df)
-                        df.drop_duplicates(subset=[column_name], inplace=True)
-                        rows_dropped = initial_rows - len(df)
-                        print(f"  - Action: Removed {rows_dropped} duplicate rows based on '{column_name}' (identifier).")
-                        cleaning_log.append(f"{log_prefix}Removed {rows_dropped} duplicate rows based on identifier column '{column_name}'.")
-                        loaded_dfs[table_name] = df # Update df in loaded_dfs if rows were dropped
-                    else:
-                        print(f"  - Action: No duplicates found for '{column_name}'. Skipping removal.")
-                        cleaning_log.append(f"{log_prefix}No duplicates found for identifier column.")
-                
-                elif action == "one_hot_encode":
-                    if pd.api.types.is_categorical_dtype(df[column_name]) or pd.api.types.is_object_dtype(df[column_name]):
-                        original_cols = df.columns.tolist()
-                        df_encoded = pd.get_dummies(df, columns=[column_name], prefix=column_name, dummy_na=False)
+                            print(f"  - Action: Cannot impute mean; '{column_name}' is not a numeric column. Skipping imputation.")
+                            cleaning_log.append(f"{log_prefix}Skipped mean imputation as '{column_name}' is not numeric.")
                         
-                        # IMPORTANT: Update the DataFrame in loaded_dfs to include new columns
-                        loaded_dfs[table_name] = df_encoded 
-                        df = df_encoded # Update current df reference to the new wide DataFrame
+                    elif action == "drop_nulls":
+                        initial_rows = len(df_current)
+                        num_nulls_before = df_current[column_name].isnull().sum()
+                        df_current.dropna(subset=[column_name], inplace=True)
+                        rows_dropped = initial_rows - len(df_current)
+                        print(f"  - Action: Dropped rows with null values ({rows_dropped} rows).")
+                        cleaning_log.append(f"{log_prefix}Dropped {rows_dropped} rows due to {num_nulls_before} missing values.")
+                        loaded_dfs[table_name] = df_current # Update df in loaded_dfs if rows were dropped (changes DF shape)
 
-                        new_cols = [col for col in df.columns if col not in original_cols and col.startswith(f"{column_name}_")]
-                        print(f"  - Action: Applied One-Hot Encoding to '{column_name}'. Created new columns: {', '.join(new_cols[:3])}{'...' if len(new_cols) > 3 else ''}.")
-                        cleaning_log.append(f"{log_prefix}Applied One-Hot Encoding to categorical column '{column_name}'. Created {len(new_cols)} new columns.")
-                    else:
-                        print(f"  - Action: Skipping One-Hot Encoding for non-categorical column '{column_name}'.")
-                        cleaning_log.append(f"{log_prefix}Skipped One-Hot Encoding as '{column_name}' is not categorical.")
+                    elif action == "impute_mode_or_category":
+                        if pd.api.types.is_categorical_dtype(df_current[column_name]) or pd.api.types.is_object_dtype(df_current[column_name]):
+                            num_nulls_before = df_current[column_name].isnull().sum()
+                            if not df_current[column_name].mode().empty:
+                                mode_value = df_current[column_name].mode()[0]
+                                df_current[column_name].fillna(mode_value, inplace=True)
+                                print(f"  - Action: Imputed missing categorical values with mode ('{mode_value}').")
+                                cleaning_log.append(f"{log_prefix}Imputed {num_nulls_before} missing categorical values with mode ('{mode_value}').")
+                            else:
+                                print(f"  - Action: Mode could not be determined for '{column_name}'. Skipping imputation.")
+                                cleaning_log.append(f"{log_prefix}Mode could not be determined for '{column_name}'. Skipping imputation.")
+                        else:
+                            print(f"  - Action: Skipping mode imputation for non-categorical column '{column_name}'.")
+                            cleaning_log.append(f"{log_prefix}Skipped mode imputation as '{column_name}' is not categorical.")
 
-            print(f"Current missing values after all actions in '{column_name}': {df[column_name].isnull().sum()}")
+                    elif action == "handle_outliers_iqr_capping":
+                        if pd.api.types.is_numeric_dtype(df_current[column_name]):
+                            Q1 = df_current[column_name].quantile(0.25)
+                            Q3 = df_current[column_name].quantile(0.75)
+                            IQR = Q3 - Q1
+                            
+                            if IQR == 0:
+                                print(f"  - Action: IQR is zero for '{column_name}'. Skipping outlier capping as all values are identical.")
+                                cleaning_log.append(f"{log_prefix}Skipped outlier capping: IQR is zero for '{column_name}'.")
+                                continue
 
-        except Exception as e:
-            print(f"An error occurred during cleaning '{column_name}': {e}. The DataFrame for '{table_name}' might be in an inconsistent state.")
-            cleaning_log.append(f"{log_prefix}ERROR: An error occurred during cleaning: {e}")
-    else:
-        print(f"No specific cleaning actions were applied for '{column_name}' based on the determined strategy.")
-        cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {table_name} - {column_name}: No specific cleaning actions applied (no significant issues detected).")
+                            lower_bound = Q1 - 1.5 * IQR
+                            upper_bound = Q3 + 1.5 * IQR
+
+                            outliers_before = df_current[(df_current[column_name] < lower_bound) | (df_current[column_name] > upper_bound)].shape[0]
+                            if outliers_before > 0:
+                                df_current[column_name] = np.where(df_current[column_name] < lower_bound, lower_bound, df_current[column_name])
+                                df_current[column_name] = np.where(df_current[column_name] > upper_bound, upper_bound, df_current[column_name])
+                                print(f"  - Action: Capped {outliers_before} outliers in '{column_name}' using IQR method (values capped between {lower_bound:.2f} and {upper_bound:.2f}).")
+                                cleaning_log.append(f"{log_prefix}Capped {outliers_before} outliers using IQR method (values capped between {lower_bound:.2f} and {upper_bound:.2f}).")
+                            else:
+                                print(f"  - Action: No outliers detected by IQR method for '{column_name}'.")
+                                cleaning_log.append(f"{log_prefix}No outliers detected by IQR method.")
+                        else:
+                            print(f"  - Action: Outlier handling skipped for '{column_name}' as it is not a numeric column.")
+                            cleaning_log.append(f"{log_prefix}Skipped outlier handling as '{column_name}' is not numeric.")
+
+                    elif action == "remove_duplicates_identifier":
+                        num_duplicates_before = df_current[column_name].duplicated().sum()
+                        if num_duplicates_before > 0:
+                            initial_rows = len(df_current)
+                            df_current.drop_duplicates(subset=[column_name], inplace=True)
+                            rows_dropped = initial_rows - len(df_current)
+                            print(f"  - Action: Removed {rows_dropped} duplicate rows based on '{column_name}' (identifier).")
+                            cleaning_log.append(f"{log_prefix}Removed {rows_dropped} duplicate rows based on identifier column '{column_name}'.")
+                            loaded_dfs[table_name] = df_current # Update df in loaded_dfs if rows were dropped
+                        else:
+                            print(f"  - Action: No duplicates found for '{column_name}'. Skipping removal.")
+                            cleaning_log.append(f"{log_prefix}No duplicates found for identifier column.")
+                        
+                    elif action == "one_hot_encode":
+                        if pd.api.types.is_categorical_dtype(df_current[column_name]) or pd.api.types.is_object_dtype(df_current[column_name]):
+                            original_cols = df_current.columns.tolist()
+                            df_encoded = pd.get_dummies(df_current, columns=[column_name], prefix=column_name, dummy_na=False)
+                            
+                            # IMPORTANT: Update the DataFrame in loaded_dfs to include new columns
+                            loaded_dfs[table_name] = df_encoded 
+                            df_current = df_encoded # Update current df_current reference to the new wide DataFrame
+
+                            new_cols = [col for col in df_current.columns if col not in original_cols and col.startswith(f"{column_name}_")]
+                            print(f"  - Action: Applied One-Hot Encoding to '{column_name}'. Created new columns: {', '.join(new_cols[:3])}{'...' if len(new_cols) > 3 else ''}.")
+                            cleaning_log.append(f"{log_prefix}Applied One-Hot Encoding to categorical column '{column_name}'. Created {len(new_cols)} new columns.")
+                        else:
+                            print(f"  - Action: Skipping One-Hot Encoding for non-categorical column '{column_name}'.")
+                            cleaning_log.append(f"{log_prefix}Skipped One-Hot Encoding as '{column_name}' is not categorical.")
+
+                print(f"Current missing values after all actions in '{column_name}': {loaded_dfs[table_name][column_name].isnull().sum()}")
+
+            except Exception as e:
+                print(f"An error occurred during cleaning '{column_name}': {e}. The DataFrame for '{table_name}' might be in an inconsistent state.")
+                cleaning_log.append(f"{log_prefix}ERROR: An error occurred during cleaning: {e}")
+        else:
+            print(f"No specific cleaning actions were applied for '{column_name}' based on the determined strategy.")
+            cleaning_log.append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {table_name} - {column_name}: No specific cleaning actions applied (no significant issues detected).")
 
 
 # --- Cleaning session finished. Save all cleaned DataFrames and logs ---
