@@ -243,10 +243,4 @@ def run_balancing_workflow():
     print("\n--- Workflow Complete ---")
 
 if __name__ == "__main__":
-    # To run this script, ensure you have a 'cleaned_csv' folder with a CSV file
-    # and a '.env' file with your GEMINI_API_KEY.
-    # Example:
-    # 1. Create folder `cleaned_csv`
-    # 2. Add `your_data.csv` to it (must contain a 'TARGET' column).
-    # 3. Create `.env` file with the line: GEMINI_API_KEY="your_actual_key_here"
     run_balancing_workflow()
