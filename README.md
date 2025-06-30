@@ -14,7 +14,7 @@ A comprehensive machine learning pipeline for automated loan approval decisions,
 - [Acknowledgments](#-acknowledgments)
 
 ## Overview
-This project implements an end-to-end machine learning pipeline under development for processing and analyzing financial loan data, with a focus on automated data cleaning, feature selection, and model training. The pipeline uses advanced techniques including vector embeddings, automated data cleaning, class balancing, and AutoML for loan approval decisions.The end goal of this project is to create an agentic Data Scientist to handle end-to-end pipeline for processing, cleaning, analyzing , building model to build loan approval/rejection system.
+This project implements an end-to-end machine learning pipeline under development which is in modules for processing and analyzing financial loan data, with a focus on automated data cleaning, feature selection, and model training. The pipeline uses advanced techniques including vector embeddings, automated data cleaning, class balancing, and AutoML for loan approval decisions.The end goal of this project is to create an agentic Data Scientist to handle end-to-end pipeline for processing, cleaning, analyzing , building model to build loan approval/rejection system.
 
 ## ✨ Features
 
@@ -57,6 +57,8 @@ This project implements an end-to-end machine learning pipeline under developmen
 - Configurable model fallback system
 
 ## 🏗️ Architecture
+
+**Planned Workflow**
 
 ```mermaid
 graph LR
