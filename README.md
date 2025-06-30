@@ -14,7 +14,7 @@ A comprehensive machine learning pipeline for automated loan approval decisions,
 - [Acknowledgments](#-acknowledgments)
 
 ## Overview
-This project implements an end-to-end machine learning pipeline for processing and analyzing financial loan data, with a focus on automated data cleaning, feature selection, and model training. The pipeline uses advanced techniques including vector embeddings, automated data cleaning, class balancing, and AutoML for loan approval decisions.
+This project implements an end-to-end machine learning pipeline under development for processing and analyzing financial loan data, with a focus on automated data cleaning, feature selection, and model training. The pipeline uses advanced techniques including vector embeddings, automated data cleaning, class balancing, and AutoML for loan approval decisions.The end goal of this project is to create an agentic Data Scientist to handle end-to-end pipeline for processing, cleaning, analyzing , building model to build loan approval/rejection system.
 
 ## ✨ Features
 
@@ -274,7 +274,7 @@ python -m AutoML.predictor_agent
   - ROC-AUC and PR-AUC
   - Confusion Matrix
 - **Feature Importance**:
-  - SHAP values
+  - SHAP values - **Under work**
   - Permutation importance
 
 ### Vector Database (Pinecone)
@@ -323,7 +323,6 @@ This project was made possible thanks to these amazing technologies and services
 - [Pinecone](https://www.pinecone.io/) - For efficient vector database services
 - [Ollama](https://ollama.ai/) - For local LLM embeddings and chat models
 - [Google Gemini](https://ai.google.dev/) - For advanced AI capabilities
-- The open-source community for their invaluable contributions
 
 ---
 
