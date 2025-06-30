@@ -313,31 +313,7 @@ python -m AutoML.predictor_agent
 
 ### Monitoring Tools
 - Automated logging to `logs/model_training/`
-- TensorBoard integration for visualization
-- Custom performance dashboards (optional)
 
-## 👥 Contributing
-
-We welcome contributions from the community! Here's how you can help:
-
-1. **Report Bugs**
-   - Submit bug reports and feature requests through [GitHub Issues](https://github.com/yourusername/automated-loan-approval/issues)
-
-2. **Development**
-   - Fork the repository
-   - Create a feature branch (`git checkout -b feature/amazing-feature`)
-   - Commit your changes (`git commit -m 'Add some amazing feature'`)
-   - Push to the branch (`git push origin feature/amazing-feature`)
-   - Open a Pull Request
-
-3. **Code Style**
-   - Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) guidelines
-   - Include docstrings for all public functions
-   - Add unit tests for new features
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
