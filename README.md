@@ -1,8 +1,5 @@
 # 🏦 Automated Loan Approval/Rejection System
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-
 A comprehensive machine learning pipeline for automated loan approval decisions, featuring advanced data preprocessing, class balancing, feature selection, and AutoML model training.
 
 ## 📋 Table of Contents
@@ -352,12 +349,8 @@ This project was made possible thanks to these amazing technologies and services
 - [Google Gemini](https://ai.google.dev/) - For advanced AI capabilities
 - The open-source community for their invaluable contributions
 
-## 📞 Support
-
-For support, please [open an issue](https://github.com/yourusername/automated-loan-approval/issues) or contact the maintainers directly.
-
 ---
 
 <div align="center">
-  Made with ❤️ by [Your Name/Organization]
+  Made by Subash Khanal
 </div>
